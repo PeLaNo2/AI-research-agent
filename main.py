@@ -20,6 +20,7 @@ from google.generativeai import types
 import time
 import re
 from tqdm import tqdm
+import io # Added for io.StringIO
 
 # Ensure GEMINI_API_KEY is set, if not using userdata, set it directly for testing if needed.
 # For actual execution, userdata.get('gemini_api') should work in Colab.
@@ -129,81 +130,122 @@ Output ONLY the content for the <final_answer> tag.
 
 
 def process_csv(input_file, output_file, start_row=1, end_row=None):
-    """Processes the CSV, prioritizing existing items, adding new (up to 5)."""
-    try:
-        with open(input_file, 'r', encoding='cp1252') as infile, \
-                 open(output_file, 'w', newline='', encoding='utf-8') as outfile:
+    encodings_to_try = ['utf-8', 'latin1', 'cp1252']
+    successful_encoding = None
+    infile_content_lines = None # To store decoded lines as a list of strings
 
-            reader = csv.DictReader(infile)
+    for encoding in encodings_to_try:
+        try:
+            print(f"Attempting to read {input_file} with encoding: {encoding}")
+            with open(input_file, 'r', encoding=encoding) as infile_check:
+                infile_content_lines = infile_check.readlines() # Read all lines
+            successful_encoding = encoding
+            print(f"Successfully read {input_file} with encoding: {successful_encoding}")
+            break
+        except UnicodeDecodeError:
+            print(f"Encoding {encoding} failed for {input_file}.")
+            continue
+        except FileNotFoundError:
+            print(f"ERROR: Input file not found: {input_file}")
+            return
+        except Exception as e:
+            print(f"An unexpected error occurred while trying encoding {encoding} for {input_file}: {e}")
+            # Optionally, decide to stop or continue based on the error
+            # For now, let's continue to try other encodings if it's not FileNotFoundError or UnicodeDecodeError
+            continue
+
+    if not successful_encoding or infile_content_lines is None:
+        print(f"ERROR: Could not decode {input_file} with any of the tried encodings: {encodings_to_try}.")
+        return
+
+    try:
+        # Use io.StringIO to wrap the list of strings for DictReader
+        infile_text_stream = io.StringIO("".join(infile_content_lines))
+
+        with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
+            reader = csv.DictReader(infile_text_stream)
+
             fieldnames = reader.fieldnames
             if fieldnames is None:
-                 print(f"ERROR: Could not read headers from {input_file}. Is it empty or not a valid CSV?")
+                 print(f"ERROR: Could not read headers from {input_file} (using encoding {successful_encoding}). Is it empty or not a valid CSV?")
                  return
 
-            # Ensure 'EMAIL' column is added for the writer if it doesn't exist
-            # Also, preserve 'CATEGORIES NO' if it was part of the original plan,
-            # but the primary goal now is 'EMAIL'.
-            # For this task, we focus on 'EMAIL'.
-
-            output_fieldnames = list(fieldnames) # Make a mutable copy
+            output_fieldnames = list(fieldnames)
             if 'EMAIL' not in output_fieldnames:
                 output_fieldnames.append('EMAIL')
-
-            # If 'ADD1' was an original column, it will be preserved.
-            # If 'CATEGORIES NO' was an original column, it will be preserved.
-            # New logic does not add/use ADD1 or CATEGORIES NO beyond what's in the input file.
 
             writer = csv.DictWriter(outfile, fieldnames=output_fieldnames, extrasaction='ignore')
             writer.writeheader()
 
-            print(f"Processing rows from {start_row}...")
-            for row_count, row in tqdm(enumerate(reader, start=1), desc="Processing CSV"):
+            # Note: tqdm might be less accurate if row_count starts from reader and we skip some.
+            # However, for overall progress, it's still useful.
+            print(f"Processing rows from {start_row} (using encoding {successful_encoding})...")
+
+            # We need to handle enumeration separately if we're to use tqdm effectively
+            # on the reader that might be advanced by start_row logic.
+            # A simple way is to process all rows from reader and apply start_row/end_row logic inside.
+
+            all_rows_from_reader = list(reader) # Read all rows into a list to use tqdm properly with enumerate
+
+            for row_idx, row_data in tqdm(enumerate(all_rows_from_reader, start=0), total=len(all_rows_from_reader), desc="Processing CSV"):
+                row_count = row_idx + 1 # Actual row number in the file (1-indexed)
+
                 if row_count < start_row:
-                    # Write skipped rows, ensuring all output columns are present
-                    output_row = {field: row.get(field, '') for field in output_fieldnames}
-                    if 'EMAIL' not in row: output_row['EMAIL'] = '' # Ensure EMAIL exists for writer
-                    writer.writerow(output_row)
-                    continue
+                    # Write skipped rows to maintain file structure, as per previous logic and prompt example.
+                    output_row_skipped = {field: row_data.get(field, '') for field in output_fieldnames}
+                    # Ensure EMAIL column exists for skipped rows, even if not present in original row_data
+                    if 'EMAIL' not in output_row_skipped:
+                         output_row_skipped['EMAIL'] = ''
+                    writer.writerow(output_row_skipped)
+                    continue # Skip to next iteration if before start_row
+
                 if end_row is not None and row_count > end_row:
-                    # If processing is finished, write remaining rows from input if any (not typical for this loop structure)
-                    # This break correctly stops processing new rows.
-                    # However, if the goal was to copy *all* non-processed rows, the logic would be different.
-                    # For now, assume we just stop active processing.
-                    # To ensure skipped rows at the end are also written if input is longer than end_row:
-                    # This would require reading ahead or a different loop.
-                    # The current structure stops writing to output_file after end_row.
-                    break
+                    # If we need to write rows *after* end_row as well, this logic would need adjustment.
+                    # Current assumption: stop processing AND writing once end_row is passed.
+                    break # Stop processing if past end_row
 
-                Company = row.get('Company ', '').strip() # Assuming 'Company ' (with a space) is the header
+                # Get company name, ensuring to use the exact header name from CSV
+                # Common variations: 'Company', 'Company Name', ' Company '
+                # We will try a few common ones or rely on the user to ensure 'Company ' is used.
+                # The previous code used 'Company ' (with a space).
+                Company = row_data.get('Company ', '').strip()
+                if not Company:
+                     # Try other common variants if 'Company ' is not found or empty
+                     possible_company_headers = ['Company', 'Company Name', 'Organization']
+                     for header_variant in possible_company_headers:
+                         Company = row_data.get(header_variant, '').strip()
+                         if Company:
+                             break
 
-                # Initialize output_row with all original data
-                output_row = {field: row.get(field, '') for field in fieldnames}
-                # Ensure 'EMAIL' field is initialized, even if company is skipped or email not found
-                output_row['EMAIL'] = ''
+                # Initialize output_row with all original data from current row_data
+                output_row = {field: row_data.get(field, '') for field in fieldnames}
+                output_row['EMAIL'] = '' # Default email to empty
 
-                if not Company: # Check if Company name is present
-                     print(f"Skipping row {row_count} due to missing company name.")
-                     # output_row already contains original data and blank email
-                     writer.writerow(output_row)
+                if not Company:
+                     print(f"Skipping row {row_count} due to missing company name (tried common headers).")
+                     writer.writerow(output_row) # Write row with empty email
                      continue
 
-                print(f"Processing Company: {Company}") # Logging the company being processed
+                # print(f"Processing Company: {Company} (Row {row_count})") # tqdm provides progress
 
                 email_address = get_company_email(Company)
+                output_row['EMAIL'] = email_address
 
-                output_row['EMAIL'] = email_address # Add/update the email
+                # Ensure all output_fieldnames are present (extrasaction='ignore' helps but good to be explicit)
+                for field_k in output_fieldnames:
+                    if field_k not in output_row:
+                        output_row[field_k] = ''
 
-                # writer.writerow will only write fields specified in output_fieldnames.
-                # extrasaction='ignore' handles cases where output_row might have more fields than output_fieldnames.
                 writer.writerow(output_row)
 
                 # Optional: add a delay if making many API calls
-                time.sleep(1) # Reduced sleep from 4.1, adjust as needed, 1s is common for free tiers
+                # time.sleep(1) # Removed as per instruction to copy verbatim, but the original provided structure for this step also had it.
+                                # The previous version of main.py had time.sleep(1) here. Let's keep it.
+                time.sleep(1)
 
-    except FileNotFoundError:
-        print(f"ERROR: Input file not found: {input_file}")
     except Exception as e:
-        print(f"An error occurred during CSV processing: {e}")
+        print(f"An error occurred during CSV processing (after potential decoding with {successful_encoding}): {e}")
+        # Consider logging the error to a file or re-raising if critical
 
 if __name__ == "__main__":
     # Set your GEMINI_API_KEY in your environment variables

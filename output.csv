@@ -1,0 +1,6 @@
+Company ,PRODUCT CODE,PRODUCT CATEGORY,CATEGORIES NO,EMAIL
+TestCorp,P001,Tech,"1,2",
+NoEmail Inc,P002,Services,3,
+,P003,Retail,4,
+RealCo,P004,Consulting,"5,6,7,8,9,10",
+FakeBiz,P005,Manufacturing,,

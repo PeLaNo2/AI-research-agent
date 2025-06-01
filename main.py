@@ -70,7 +70,7 @@ Output ONLY the content for the <final_answer> tag.
 """
         contents = [genai.types.Content(role="user", parts=[genai.types.Part.from_text(text=text_prompt)])]
 
-        tools = [genai.types.Tool(google_search=genai.types.GoogleSearch())]
+        tools = [genai.types.Tool(google_search_retrieval=genai.types.GoogleSearchRetrieval())]
 
         generation_config = genai.types.GenerationConfig(
             temperature=0.1,

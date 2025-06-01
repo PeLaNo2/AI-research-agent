@@ -16,7 +16,7 @@ except ImportError:
 
 # import os # Duplicate import - already imported above
 import google.generativeai as genai
-from google.generativeai import types
+# from google.generativeai import types # Commented out as types will be accessed via genai.types
 import time
 import re
 from tqdm import tqdm
@@ -68,11 +68,11 @@ If you find an email, output it within a <final_answer> tag. For example: <final
 If you cannot find a definitive email, output <final_answer>Not Found</final_answer>.
 Output ONLY the content for the <final_answer> tag.
 """
-        contents = [types.Content(role="user", parts=[types.Part.from_text(text=text_prompt)])]
+        contents = [genai.types.Content(role="user", parts=[genai.types.Part.from_text(text=text_prompt)])]
 
-        tools = [types.Tool(google_search=types.GoogleSearch())]
+        tools = [genai.types.Tool(google_search=genai.types.GoogleSearch())]
 
-        generation_config = types.GenerationConfig(
+        generation_config = genai.types.GenerationConfig(
             temperature=0.1,
             top_p=0.95,
             top_k=40,

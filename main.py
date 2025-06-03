@@ -16,7 +16,7 @@ except ImportError:
 
 # import os # Duplicate import - already imported above
 import google.generativeai as genai
-# from google.generativeai import types # Commented out as types will be accessed via genai.types
+import google.ai.generativelanguage as glm
 import time
 import re
 from tqdm import tqdm
@@ -68,11 +68,11 @@ If you find an email, output it within a <final_answer> tag. For example: <final
 If you cannot find a definitive email, output <final_answer>Not Found</final_answer>.
 Output ONLY the content for the <final_answer> tag.
 """
-        contents = [genai.types.Content(role="user", parts=[genai.types.Part.from_text(text=text_prompt)])]
+        contents = [glm.Content(role="user", parts=[glm.Part(text=text_prompt)])]
 
-        tools = [genai.types.Tool(google_search_retrieval=genai.types.GoogleSearchRetrieval())]
+        tools = [glm.Tool(google_search_retrieval=glm.GoogleSearchRetrieval())]
 
-        generation_config = genai.types.GenerationConfig(
+        generation_config = glm.GenerationConfig(
             temperature=0.1,
             top_p=0.95,
             top_k=40,
@@ -219,17 +219,21 @@ def process_csv(input_file, output_file, start_row=1, end_row=None):
 
                 # Initialize output_row with all original data from current row_data
                 output_row = {field: row_data.get(field, '') for field in fieldnames}
-                output_row['EMAIL'] = '' # Default email to empty
 
-                if not Company:
-                     print(f"Skipping row {row_count} due to missing company name (tried common headers).")
-                     writer.writerow(output_row) # Write row with empty email
-                     continue
+                existing_email = row_data.get('EMAIL', '').strip()
 
-                # print(f"Processing Company: {Company} (Row {row_count})") # tqdm provides progress
+                if existing_email:
+                    output_row['EMAIL'] = existing_email
+                else:
+                    if not Company:
+                        print(f"Skipping row {row_count} due to missing company name (tried common headers) and no existing email.")
+                        output_row['EMAIL'] = '' # Ensure email is blank
+                        writer.writerow(output_row)
+                        continue
 
-                email_address = get_company_email(Company)
-                output_row['EMAIL'] = email_address
+                    # print(f"Processing Company: {Company} (Row {row_count}) for email.") # tqdm provides progress
+                    email_address = get_company_email(Company)
+                    output_row['EMAIL'] = email_address
 
                 # Ensure all output_fieldnames are present (extrasaction='ignore' helps but good to be explicit)
                 for field_k in output_fieldnames:
@@ -260,26 +264,12 @@ if __name__ == "__main__":
     else:
         print("GEMINI_API_KEY found. Proceeding with script execution.")
 
-    # Example: Create a dummy input CSV for testing
-    dummy_input_file = "dummy_input.csv"
-    with open(dummy_input_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Company ", "PRODUCT CODE", "PRODUCT CATEGORY", "CATEGORIES NO"]) # Note "Company "
-        writer.writerow(["TestCorp", "P001", "Tech", "1,2"])
-        writer.writerow(["NoEmail Inc", "P002", "Services", "3"])
-        writer.writerow(["", "P003", "Retail", "4"]) # Empty company name
-        writer.writerow(["RealCo", "P004", "Consulting", "5,6,7,8,9,10"])
-        writer.writerow(["FakeBiz", "P005", "Manufacturing", ""])
-
-
-    # Get input_csv_file from the user's original script, but use dummy for now
-    # input_csv_file = "/content/複本 The Inspired Home Show 2025_NON-US_BUYERS_LIST(1)(moke).csv"
-    input_csv_file = dummy_input_file # Use dummy for this test run
+    input_csv_file = "home_show_moke.csv"
     output_csv_file = "output.csv"
 
-    # Adjust start_row and end_row for testing with the dummy file
+    # Adjust start_row and end_row for testing
     start_row = 1
-    end_row = 5 # Process all rows in the dummy file
+    end_row = 10 # Process first 10 data rows
 
     print(f"Starting CSV processing for {input_csv_file} from row {start_row} to {end_row}.")
     process_csv(input_file=input_csv_file, output_file=output_csv_file, start_row=start_row, end_row=end_row)

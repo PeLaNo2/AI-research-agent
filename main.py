@@ -58,25 +58,25 @@ def get_company_email(Company : str) -> str:
         genai.configure(api_key=api_key)
 
         # Define model and tools
-        gemini_model_name = "gemini-pro"
-        model = genai.GenerativeModel(model_name=gemini_model_name)
+        model = genai.GenerativeModel(model_name="models/gemini-1.5-pro-latest")
 
-        text_prompt = f"""
+        text_prompt_template = """
 Search for the email address of the company named "{Company}" using Google Search.
 Provide the email address.
 If you find an email, output it within a <final_answer> tag. For example: <final_answer>contact@example.com</final_answer>
 If you cannot find a definitive email, output <final_answer>Not Found</final_answer>.
 Output ONLY the content for the <final_answer> tag.
 """
-        contents = [glm.Content(role="user", parts=[glm.Part(text=text_prompt)])]
+        text_part = glm.Part(text=text_prompt_template.format(Company=Company))
+        contents = [glm.Content(role="user", parts=[text_part])]
 
         tools = [glm.Tool(google_search_retrieval=glm.GoogleSearchRetrieval())]
 
         generation_config = glm.GenerationConfig(
             temperature=0.1,
-            top_p=0.95,
-            top_k=40,
-            max_output_tokens=8192, # Default is 2048, be mindful of model limits
+            # top_p=0.95, # Optional
+            # top_k=40,   # Optional
+            # max_output_tokens=8192 # Optional
         )
 
         # Make the API call
@@ -111,6 +111,8 @@ Output ONLY the content for the <final_answer> tag.
                 return ""
             else:
                 print(f"Warning: <final_answer> tag not found or email format incorrect in response for {Company}. Response text: '{response_text}'")
+                if hasattr(response, 'prompt_feedback'):
+                    print(f"Prompt feedback for {Company}: {response.prompt_feedback}")
                 return ""
 
     except Exception as e:
@@ -257,6 +259,8 @@ if __name__ == "__main__":
     # from google.colab import userdata
     # os.environ["GEMINI_API_KEY"] = userdata.get('gemini_api')
 
+    # IMPORTANT: Ensure the GEMINI_API_KEY environment variable is set with a valid key
+    # that has sufficient quota for the Gemini API.
     # Check if API key is set (basic check)
     if not os.getenv("GEMINI_API_KEY"):
         print("GEMINI_API_KEY is not set. Please set it before running the script.")
